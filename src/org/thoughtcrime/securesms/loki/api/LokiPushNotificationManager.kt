@@ -3,6 +3,7 @@ package org.thoughtcrime.securesms.loki.api
 import android.content.Context
 import nl.komponents.kovenant.functional.map
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
 import org.thoughtcrime.securesms.database.DatabaseFactory
 import org.thoughtcrime.securesms.util.TextSecurePreferences
 import org.whispersystems.libsignal.logging.Log
@@ -38,7 +39,7 @@ object LokiPushNotificationManager {
     fun unregister(token: String, context: Context) {
         val parameters = mapOf( "token" to token )
         val url = "$server/unregister"
-        val body = RequestBody.create(MediaType.get("application/json"), JsonUtil.toJson(parameters))
+        val body = RequestBody.create("application/json".toMediaType(), JsonUtil.toJson(parameters))
         val request = Request.Builder().url(url).post(body)
         retryIfNeeded(maxRetryCount) {
             OnionRequestAPI.sendOnionRequest(request.build(), server, pnServerPublicKey).map { json ->
@@ -67,7 +68,7 @@ object LokiPushNotificationManager {
         if (!force && token == oldToken && System.currentTimeMillis() - lastUploadDate < tokenExpirationInterval) { return }
         val parameters = mapOf( "token" to token, "pubKey" to publicKey )
         val url = "$server/register"
-        val body = RequestBody.create(MediaType.get("application/json"), JsonUtil.toJson(parameters))
+        val body = RequestBody.create("application/json".toMediaType(), JsonUtil.toJson(parameters))
         val request = Request.Builder().url(url).post(body)
         retryIfNeeded(maxRetryCount) {
             OnionRequestAPI.sendOnionRequest(request.build(), server, pnServerPublicKey).map { json ->
@@ -95,7 +96,7 @@ object LokiPushNotificationManager {
         if (!TextSecurePreferences.isUsingFCM(context)) { return }
         val parameters = mapOf( "closedGroupPublicKey" to closedGroupPublicKey, "pubKey" to publicKey )
         val url = "$server/${operation.rawValue}"
-        val body = RequestBody.create(MediaType.get("application/json"), JsonUtil.toJson(parameters))
+        val body = RequestBody.create("application/json".toMediaType(), JsonUtil.toJson(parameters))
         val request = Request.Builder().url(url).post(body)
         retryIfNeeded(maxRetryCount) {
             OnionRequestAPI.sendOnionRequest(request.build(), server, pnServerPublicKey).map { json ->

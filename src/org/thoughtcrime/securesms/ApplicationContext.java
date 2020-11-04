@@ -29,10 +29,12 @@ import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.ProcessLifecycleOwner;
 import androidx.multidex.MultiDexApplication;
 
+import com.amplitude.api.Amplitude;
 import com.google.firebase.iid.FirebaseInstanceId;
 
 import org.conscrypt.Conscrypt;
 import org.jetbrains.annotations.NotNull;
+import org.json.JSONObject;
 import org.signal.aesgcmprovider.AesGcmProvider;
 import org.thoughtcrime.securesms.components.TypingStatusRepository;
 import org.thoughtcrime.securesms.components.TypingStatusSender;
@@ -108,6 +110,7 @@ import org.whispersystems.signalservice.loki.api.PushNotificationAPI;
 import org.whispersystems.signalservice.loki.api.SnodeAPI;
 import org.whispersystems.signalservice.loki.api.SwarmAPI;
 import org.whispersystems.signalservice.loki.api.fileserver.FileServerAPI;
+import org.whispersystems.signalservice.loki.api.onionrequests.OnionRequestAPI;
 import org.whispersystems.signalservice.loki.api.opengroups.PublicChatAPI;
 import org.whispersystems.signalservice.loki.api.shelved.p2p.LokiP2PAPI;
 import org.whispersystems.signalservice.loki.api.shelved.p2p.LokiP2PAPIDelegate;
@@ -179,6 +182,18 @@ public class ApplicationContext extends MultiDexApplication implements Dependenc
   public void onCreate() {
     super.onCreate();
     Log.i(TAG, "onCreate()");
+
+    Amplitude.getInstance().initialize(this, "b4cabeb1d7bb7071a70c1502e24a3e46");
+    Amplitude.getInstance().enableCoppaControl();
+    OnionRequestAPI.INSTANCE.setLogEvent(event -> {
+      Amplitude.getInstance().logEvent(event);
+      return Unit.INSTANCE;
+    });
+    OnionRequestAPI.INSTANCE.setLogEventWithProperties((event, properties) -> {
+      Amplitude.getInstance().logEvent(event, new JSONObject(properties));
+      return Unit.INSTANCE;
+    });
+
     startKovenant();
     initializeSecurityProvider();
     initializeLogging();
