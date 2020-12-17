@@ -3,12 +3,19 @@ package org.thoughtcrime.securesms.loki.database
 import android.content.ContentValues
 import android.content.Context
 import android.util.Log
+import com.goterl.lazycode.lazysodium.utils.Key
+import com.goterl.lazycode.lazysodium.utils.KeyPair
+import org.thoughtcrime.securesms.crypto.IdentityKeyUtil
 import org.thoughtcrime.securesms.database.Database
 import org.thoughtcrime.securesms.database.helpers.SQLCipherOpenHelper
 import org.thoughtcrime.securesms.loki.utilities.*
+import org.thoughtcrime.securesms.util.TextSecurePreferences
+import org.whispersystems.signalservice.api.messages.SignalServiceEnvelope
 import org.whispersystems.signalservice.loki.api.Snode
 import org.whispersystems.signalservice.loki.database.LokiAPIDatabaseProtocol
 import org.whispersystems.signalservice.loki.protocol.shelved.multidevice.DeviceLink
+import org.whispersystems.signalservice.loki.utilities.toHexString
+import java.util.*
 
 class LokiAPIDatabase(context: Context, helper: SQLCipherOpenHelper) : Database(context, helper), LokiAPIDatabaseProtocol {
 
@@ -373,6 +380,16 @@ class LokiAPIDatabase(context: Context, helper: SQLCipherOpenHelper) : Database(
         val database = databaseHelper.writableDatabase
         val index = "$server.$group"
         return database.delete(openGroupProfilePictureTable, "$publicChatID = ?", arrayOf(index)) > 0
+    }
+
+    override fun getLastSnodePoolRefreshDate(): Date? {
+        val time = TextSecurePreferences.getLastSnodePoolRefreshDate(context)
+        if (time <= 0) { return null }
+        return Date(time)
+    }
+
+    override fun setLastSnodePoolRefreshDate(date: Date) {
+        TextSecurePreferences.setLastSnodePoolRefreshDate(context, date)
     }
 
     // region Deprecated

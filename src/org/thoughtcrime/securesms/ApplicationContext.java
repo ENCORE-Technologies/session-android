@@ -41,7 +41,6 @@ import org.thoughtcrime.securesms.components.TypingStatusSender;
 import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.MasterSecretUtil;
 import org.thoughtcrime.securesms.crypto.ProfileKeyUtil;
-import org.thoughtcrime.securesms.crypto.storage.TextSecureSessionStore;
 import org.thoughtcrime.securesms.database.Address;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.GroupDatabase;
@@ -64,7 +63,7 @@ import org.thoughtcrime.securesms.logging.Log;
 import org.thoughtcrime.securesms.logging.PersistentLogger;
 import org.thoughtcrime.securesms.logging.UncaughtExceptionLogger;
 import org.thoughtcrime.securesms.loki.activities.HomeActivity;
-import org.thoughtcrime.securesms.loki.api.BackgroundPollListener;
+import org.thoughtcrime.securesms.loki.api.BackgroundPollWorker;
 import org.thoughtcrime.securesms.loki.api.ClosedGroupPoller;
 import org.thoughtcrime.securesms.loki.api.LokiPushNotificationManager;
 import org.thoughtcrime.securesms.loki.api.PublicChatManager;
@@ -73,7 +72,6 @@ import org.thoughtcrime.securesms.loki.database.LokiThreadDatabase;
 import org.thoughtcrime.securesms.loki.database.LokiUserDatabase;
 import org.thoughtcrime.securesms.loki.database.SharedSenderKeysDatabase;
 import org.thoughtcrime.securesms.loki.protocol.ClosedGroupsProtocol;
-import org.thoughtcrime.securesms.loki.protocol.SessionRequestMessageSendJob;
 import org.thoughtcrime.securesms.loki.protocol.SessionResetImplementation;
 import org.thoughtcrime.securesms.loki.utilities.Broadcaster;
 import org.thoughtcrime.securesms.loki.utilities.UiModeUtilities;
@@ -99,10 +97,8 @@ import org.webrtc.PeerConnectionFactory;
 import org.webrtc.PeerConnectionFactory.InitializationOptions;
 import org.webrtc.voiceengine.WebRtcAudioManager;
 import org.webrtc.voiceengine.WebRtcAudioUtils;
-import org.whispersystems.libsignal.SignalProtocolAddress;
 import org.whispersystems.libsignal.logging.SignalProtocolLoggerProvider;
 import org.whispersystems.signalservice.api.messages.SignalServiceEnvelope;
-import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 import org.whispersystems.signalservice.api.util.StreamDetails;
 import org.whispersystems.signalservice.internal.push.SignalServiceProtos;
 import org.whispersystems.signalservice.loki.api.Poller;
@@ -404,7 +400,7 @@ public class ApplicationContext extends MultiDexApplication implements Dependenc
     RotateSignedPreKeyListener.schedule(this);
     LocalBackupListener.schedule(this);
     RotateSenderCertificateListener.schedule(this);
-    BackgroundPollListener.schedule(this); // Loki
+    BackgroundPollWorker.schedulePeriodic(this); // Loki
 
     if (BuildConfig.PLAY_STORE_DISABLED) {
       UpdateApkRefreshListener.schedule(this);
@@ -607,14 +603,19 @@ public class ApplicationContext extends MultiDexApplication implements Dependenc
     });
   }
 
-  public void clearData() {
+  public void clearAllData(boolean isMigratingToV2KeyPair) {
     String token = TextSecurePreferences.getFCMToken(this);
     if (token != null && !token.isEmpty()) {
       LokiPushNotificationManager.unregister(token, this);
     }
-    boolean wasUnlinked = TextSecurePreferences.getWasUnlinked(this);
+    String displayName = TextSecurePreferences.getProfileName(this);
+    boolean isUsingFCM = TextSecurePreferences.isUsingFCM(this);
     TextSecurePreferences.clearAll(this);
-    TextSecurePreferences.setWasUnlinked(this, wasUnlinked);
+    if (isMigratingToV2KeyPair) {
+      TextSecurePreferences.setIsMigratingKeyPair(this, true);
+      TextSecurePreferences.setIsUsingFCM(this, isUsingFCM);
+      TextSecurePreferences.setProfileName(this, displayName);
+    }
     MasterSecretUtil.clear(this);
     if (!deleteDatabase("signal.db")) {
       Log.d("Loki", "Failed to delete database.");
@@ -641,26 +642,7 @@ public class ApplicationContext extends MultiDexApplication implements Dependenc
 
   @Override
   public void sendSessionRequestIfNeeded(@NotNull String publicKey) {
-    // It's never necessary to establish a session with self
-    String userPublicKey = TextSecurePreferences.getLocalNumber(this);
-    if (publicKey.equals(userPublicKey)) { return; }
-    // Check that we don't already have a session
-    SignalProtocolAddress address = new SignalProtocolAddress(publicKey, SignalServiceAddress.DEFAULT_DEVICE_ID);
-    boolean hasSession = new TextSecureSessionStore(this).containsSession(address);
-    if (hasSession) { return; }
-    // Check that we didn't already send a session request
-    LokiAPIDatabase apiDB = DatabaseFactory.getLokiAPIDatabase(this);
-    boolean hasSentSessionRequest = (apiDB.getSessionRequestSentTimestamp(publicKey) != null);
-    boolean hasSentSessionRequestExpired = hasSentSessionRequestExpired(publicKey);
-    if (hasSentSessionRequestExpired) {
-      apiDB.setSessionRequestSentTimestamp(publicKey, 0);
-    }
-    if (hasSentSessionRequest && !hasSentSessionRequestExpired) { return; }
-    // Send the session request
-    long timestamp = new Date().getTime();
-    apiDB.setSessionRequestSentTimestamp(publicKey, timestamp);
-    SessionRequestMessageSendJob job = new SessionRequestMessageSendJob(publicKey, timestamp);
-    jobManager.add(job);
+    
   }
 
   @Override

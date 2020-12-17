@@ -156,6 +156,7 @@ import org.thoughtcrime.securesms.linkpreview.LinkPreviewViewModel;
 import org.thoughtcrime.securesms.logging.Log;
 import org.thoughtcrime.securesms.loki.activities.EditClosedGroupActivity;
 import org.thoughtcrime.securesms.loki.activities.HomeActivity;
+import org.thoughtcrime.securesms.loki.api.PublicChatInfoUpdateWorker;
 import org.thoughtcrime.securesms.loki.database.LokiThreadDatabase;
 import org.thoughtcrime.securesms.loki.database.LokiThreadDatabaseDelegate;
 import org.thoughtcrime.securesms.loki.database.LokiUserDatabase;
@@ -163,6 +164,7 @@ import org.thoughtcrime.securesms.loki.protocol.ClosedGroupsProtocol;
 import org.thoughtcrime.securesms.loki.protocol.SessionManagementProtocol;
 import org.thoughtcrime.securesms.loki.utilities.GeneralUtilitiesKt;
 import org.thoughtcrime.securesms.loki.utilities.MentionManagerUtilities;
+import org.thoughtcrime.securesms.loki.utilities.OpenGroupUtilities;
 import org.thoughtcrime.securesms.loki.views.MentionCandidateSelectionView;
 import org.thoughtcrime.securesms.loki.views.ProfilePictureView;
 import org.thoughtcrime.securesms.loki.views.SessionRestoreBannerView;
@@ -213,7 +215,6 @@ import org.thoughtcrime.securesms.util.DateUtils;
 import org.thoughtcrime.securesms.util.Dialogs;
 import org.thoughtcrime.securesms.util.DynamicLanguage;
 import org.thoughtcrime.securesms.util.ExpirationUtil;
-import org.thoughtcrime.securesms.util.GroupUtil;
 import org.thoughtcrime.securesms.util.IdentityUtil;
 import org.thoughtcrime.securesms.util.MediaUtil;
 import org.thoughtcrime.securesms.util.ServiceUtil;
@@ -228,7 +229,6 @@ import org.thoughtcrime.securesms.util.views.Stub;
 import org.whispersystems.libsignal.InvalidMessageException;
 import org.whispersystems.libsignal.util.guava.Optional;
 import org.whispersystems.signalservice.loki.api.opengroups.PublicChat;
-import org.whispersystems.signalservice.loki.api.opengroups.PublicChatAPI;
 import org.whispersystems.signalservice.loki.protocol.mentions.Mention;
 import org.whispersystems.signalservice.loki.protocol.mentions.MentionsManager;
 import org.whispersystems.signalservice.loki.protocol.meta.SessionMetaProtocol;
@@ -462,20 +462,8 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
 
     PublicChat publicChat = DatabaseFactory.getLokiThreadDatabase(this).getPublicChat(threadId);
     if (publicChat != null) {
-      PublicChatAPI publicChatAPI = ApplicationContext.getInstance(this).getPublicChatAPI();
-      publicChatAPI.getChannelInfo(publicChat.getChannel(), publicChat.getServer()).success(info -> {
-        String groupId = GroupUtil.getEncodedOpenGroupId(publicChat.getId().getBytes());
-
-        publicChatAPI.updateProfileIfNeeded(
-            publicChat.getChannel(),
-            publicChat.getServer(),
-            groupId,
-            info,
-            false);
-
-        runOnUiThread(ConversationActivity.this::updateSubtitleTextView);
-        return Unit.INSTANCE;
-      });
+      // Request open group info update and handle the successful result in #onOpenGroupInfoUpdated().
+      PublicChatInfoUpdateWorker.scheduleInstant(this, publicChat.getServer(), publicChat.getChannel());
     }
 
     View rootView = findViewById(R.id.rootView);
@@ -799,11 +787,13 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
 
     inflater.inflate(R.menu.conversation, menu);
 
+    /*
     if (isSingleConversation() && isSecureText) {
       inflater.inflate(R.menu.conversation_secure, menu);
     } else if (isSingleConversation()) {
       inflater.inflate(R.menu.conversation_insecure, menu);
     }
+     */
 
     if (recipient != null && recipient.isMuted()) inflater.inflate(R.menu.conversation_muted, menu);
     else                                          inflater.inflate(R.menu.conversation_unmuted, menu);
@@ -894,7 +884,7 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
     case R.id.menu_add_shortcut:              handleAddShortcut();                               return true;
     case R.id.menu_search:                    handleSearch();                                    return true;
 //    case R.id.menu_add_to_contacts:           handleAddToContacts();                             return true;
-    case R.id.menu_reset_secure_session:      handleResetSecureSession();                        return true;
+//    case R.id.menu_reset_secure_session:      handleResetSecureSession();                        return true;
 //    case R.id.menu_group_recipients:          handleDisplayGroupRecipients();                    return true;
     case R.id.menu_distribution_broadcast:    handleDistributionBroadcastEnabled(item);          return true;
     case R.id.menu_distribution_conversation: handleDistributionConversationEnabled(item);       return true;
@@ -1940,6 +1930,16 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
                 .show(TooltipPopup.POSITION_ABOVE);
   }
 
+  @Subscribe(threadMode = ThreadMode.MAIN)
+  public void onOpenGroupInfoUpdated(OpenGroupUtilities.GroupInfoUpdatedEvent event) {
+    PublicChat publicChat = DatabaseFactory.getLokiThreadDatabase(this).getPublicChat(threadId);
+    if (publicChat != null &&
+            publicChat.getChannel() == event.getChannel() &&
+            publicChat.getServer().equals(event.getUrl())) {
+      this.updateSubtitleTextView();
+    }
+  }
+
   private void initializeReceivers() {
     securityUpdateReceiver = new BroadcastReceiver() {
       @Override
@@ -2095,7 +2095,7 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
         long           threadId       = params[0];
 
         if (drafts.size() > 0) {
-          if (threadId == -1) threadId = threadDatabase.getThreadIdFor(getRecipient(), thisDistributionType);
+          if (threadId == -1) threadId = threadDatabase.getOrCreateThreadIdFor(getRecipient(), thisDistributionType);
 
           draftDatabase.insertDrafts(threadId, drafts);
           threadDatabase.updateSnippet(threadId, drafts.getSnippet(ConversationActivity.this),
@@ -2370,7 +2370,7 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
                                        recipient.getAddress().isEmail()               ||
                                        inputPanel.getQuote().isPresent()              ||
                                        linkPreviewViewModel.hasLinkPreview()          ||
-                                       LinkPreviewUtil.isWhitelistedMediaUrl(message) || // Loki - Send GIFs as media messages
+                                       LinkPreviewUtil.isValidMediaUrl(message) || // Loki - Send GIFs as media messages
                                        needsSplit;
 
       Log.i(TAG, "isManual Selection: " + sendButton.isManualSelection());

@@ -65,6 +65,7 @@ import org.thoughtcrime.securesms.linkpreview.LinkPreview;
 import org.thoughtcrime.securesms.linkpreview.LinkPreviewUtil;
 import org.thoughtcrime.securesms.logging.Log;
 import org.thoughtcrime.securesms.loki.activities.HomeActivity;
+import org.thoughtcrime.securesms.loki.api.SessionProtocolImpl;
 import org.thoughtcrime.securesms.loki.database.LokiMessageDatabase;
 import org.thoughtcrime.securesms.loki.database.LokiThreadDatabase;
 import org.thoughtcrime.securesms.loki.protocol.ClosedGroupsProtocol;
@@ -259,7 +260,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
       SignalProtocolStore  axolotlStore         = new SignalProtocolStoreImpl(context);
       SessionResetProtocol sessionResetProtocol = new SessionResetImplementation(context);
       SignalServiceAddress localAddress         = new SignalServiceAddress(TextSecurePreferences.getLocalNumber(context));
-      LokiServiceCipher    cipher               = new LokiServiceCipher(localAddress, axolotlStore, DatabaseFactory.getSSKDatabase(context), sessionResetProtocol, UnidentifiedAccessUtil.getCertificateValidator());
+      LokiServiceCipher    cipher               = new LokiServiceCipher(localAddress, axolotlStore, DatabaseFactory.getSSKDatabase(context), new SessionProtocolImpl(context), sessionResetProtocol, UnidentifiedAccessUtil.getCertificateValidator());
 
       SignalServiceContent content = cipher.decrypt(envelope);
 
@@ -498,7 +499,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
     OutgoingTextMessage       outgoingTextMessage       = new OutgoingTextMessage(recipient, "", -1);
     OutgoingEndSessionMessage outgoingEndSessionMessage = new OutgoingEndSessionMessage(outgoingTextMessage);
 
-    long threadId = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipient);
+    long threadId = DatabaseFactory.getThreadDatabase(context).getOrCreateThreadIdFor(recipient);
 
     if (!recipient.isGroupRecipient()) {
       // TODO: Handle session reset on sync messages
@@ -808,7 +809,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
       if (result.getMessageId() > -1) {
         ThreadDatabase threadDatabase = DatabaseFactory.getThreadDatabase(context);
         LokiMessageDatabase lokiMessageDatabase = DatabaseFactory.getLokiMessageDatabase(context);
-        long originalThreadId = threadDatabase.getThreadIdFor(originalRecipient);
+        long originalThreadId = threadDatabase.getOrCreateThreadIdFor(originalRecipient);
         lokiMessageDatabase.setOriginalThreadID(result.getMessageId(), originalThreadId);
       }
     }
@@ -822,7 +823,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
                                                                                                   message.getTimestamp(),
                                                                                                   message.getMessage().getExpiresInSeconds() * 1000L);
 
-    long threadId  = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipient);
+    long threadId  = DatabaseFactory.getThreadDatabase(context).getOrCreateThreadIdFor(recipient);
     long messageId = database.insertMessageOutbox(expirationUpdateMessage, threadId, false, null);
 
     database.markAsSent(messageId, true);
@@ -864,7 +865,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
       handleSynchronizeSentExpirationUpdate(message);
     }
 
-    long threadId  = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipients);
+    long threadId  = DatabaseFactory.getThreadDatabase(context).getOrCreateThreadIdFor(recipients);
 
     database.beginTransaction();
 
@@ -995,7 +996,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
         if (result.getMessageId() > -1) {
           ThreadDatabase threadDatabase = DatabaseFactory.getThreadDatabase(context);
           LokiMessageDatabase lokiMessageDatabase = DatabaseFactory.getLokiMessageDatabase(context);
-          long originalThreadId = threadDatabase.getThreadIdFor(originalRecipient);
+          long originalThreadId = threadDatabase.getOrCreateThreadIdFor(originalRecipient);
           lokiMessageDatabase.setOriginalThreadID(result.getMessageId(), originalThreadId);
         }
       }
@@ -1018,7 +1019,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
       handleSynchronizeSentExpirationUpdate(message);
     }
 
-    long    threadId  = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipient);
+    long    threadId  = DatabaseFactory.getThreadDatabase(context).getOrCreateThreadIdFor(recipient);
     boolean isGroup   = recipient.getAddress().isGroup();
 
     MessagingDatabase database;
@@ -1102,7 +1103,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
     if (canRecoverAutomatically(e)) {
       Recipient recipient = Recipient.from(context, Address.fromSerialized(sender), false);
       LokiThreadDatabase threadDB = DatabaseFactory.getLokiThreadDatabase(context);
-      long threadID = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipient);
+      long threadID = DatabaseFactory.getThreadDatabase(context).getOrCreateThreadIdFor(recipient);
       threadDB.addSessionRestoreDevice(threadID, sender);
       SessionManagementProtocol.startSessionReset(context, sender);
     } else {
@@ -1249,7 +1250,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
     } else {
       // See if we need to redirect the message
       author = getMessageMasterDestination(content.getSender());
-      threadId = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(author);
+      threadId = DatabaseFactory.getThreadDatabase(context).getOrCreateThreadIdFor(author);
     }
 
     if (threadId <= 0) {
@@ -1368,7 +1369,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
       Optional<String>     title         = Optional.fromNullable(preview.getTitle());
       boolean              hasContent    = !TextUtils.isEmpty(title.or("")) || thumbnail.isPresent();
       boolean              presentInBody = url.isPresent() && Stream.of(LinkPreviewUtil.findWhitelistedUrls(message)).map(Link::getUrl).collect(Collectors.toSet()).contains(url.get());
-      boolean              validDomain   = url.isPresent() && LinkPreviewUtil.isWhitelistedLinkUrl(url.get());
+      boolean              validDomain   = url.isPresent() && LinkPreviewUtil.isValidLinkUrl(url.get());
 
       if (hasContent && presentInBody && validDomain) {
         LinkPreview linkPreview = new LinkPreview(url.get(), title.or(""), thumbnail);
@@ -1459,7 +1460,7 @@ public class PushDecryptJob extends BaseJob implements InjectableType {
 
   private void notifyTypingStoppedFromIncomingMessage(@NonNull Recipient conversationRecipient, @NonNull String sender, int device) {
     Recipient author   = Recipient.from(context, Address.fromSerialized(sender), false);
-    long      threadId = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(conversationRecipient);
+    long      threadId = DatabaseFactory.getThreadDatabase(context).getOrCreateThreadIdFor(conversationRecipient);
 
     if (threadId > 0) {
       Log.d(TAG, "Typing stopped on thread " + threadId + " due to an incoming message.");

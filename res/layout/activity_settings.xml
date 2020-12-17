@@ -160,23 +160,6 @@
                 android:text="@string/activity_settings_chats_button_title" />
 
             <View
-                android:id="@+id/linkedDevicesButtonTopSeparator"
-                android:layout_width="match_parent"
-                android:layout_height="1px"
-                android:background="?android:dividerHorizontal" />
-
-            <TextView
-                android:id="@+id/linkedDevicesButton"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/setting_button_height"
-                android:background="@drawable/setting_button_background"
-                android:textColor="@color/text"
-                android:textSize="@dimen/medium_font_size"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:text="@string/activity_settings_devices_button_title" />
-
-            <View
                 android:layout_width="match_parent"
                 android:layout_height="1px"
                 android:background="?android:dividerHorizontal" />
@@ -193,7 +176,23 @@
                 android:text="Invite" />
 
             <View
-                android:id="@+id/seedButtonTopSeparator"
+                android:id="@+id/upgradeSessionIDButtonTopSeparator"
+                android:layout_width="match_parent"
+                android:layout_height="1px"
+                android:background="?android:dividerHorizontal" />
+
+            <TextView
+                android:id="@+id/upgradeSessionIDButton"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/setting_button_height"
+                android:background="@drawable/setting_button_background"
+                android:textColor="@color/text"
+                android:textSize="@dimen/medium_font_size"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:text="Upgrade Session ID" />
+
+            <View
                 android:layout_width="match_parent"
                 android:layout_height="1px"
                 android:background="?android:dividerHorizontal" />

@@ -17,6 +17,7 @@ import org.thoughtcrime.securesms.loki.dialogs.LinkDeviceSlaveModeDialog
 import org.thoughtcrime.securesms.loki.dialogs.LinkDeviceSlaveModeDialogDelegate
 import org.thoughtcrime.securesms.loki.protocol.SessionResetImplementation
 import org.thoughtcrime.securesms.loki.protocol.shelved.MultiDeviceProtocol
+import org.thoughtcrime.securesms.loki.utilities.KeyPairUtilities
 import org.thoughtcrime.securesms.loki.utilities.push
 import org.thoughtcrime.securesms.loki.utilities.setUpActionBarSessionLogo
 import org.thoughtcrime.securesms.loki.utilities.show
@@ -44,9 +45,11 @@ class LandingActivity : BaseActionBarActivity(), LinkDeviceSlaveModeDialogDelega
         fakeChatView.startAnimating()
         registerButton.setOnClickListener { register() }
         restoreButton.setOnClickListener { restore() }
-//        linkButton.setOnClickListener { linkDevice() }
-        if (TextSecurePreferences.getWasUnlinked(this)) {
-            Toast.makeText(this, R.string.activity_landing_device_unlinked_dialog_title, Toast.LENGTH_LONG).show()
+        if (TextSecurePreferences.getIsMigratingKeyPair(this)) {
+            val displayName = TextSecurePreferences.getProfileName(this)
+            if (displayName != null) {
+                KeyPairUtilities.migrateToV2KeyPair(this)
+            }
         }
     }
 

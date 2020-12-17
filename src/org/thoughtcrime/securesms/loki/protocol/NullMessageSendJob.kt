@@ -39,6 +39,7 @@ class NullMessageSendJob private constructor(parameters: Parameters, private val
     override fun getFactoryKey(): String { return KEY }
 
     public override fun onRun() {
+        /*
         val contentMessage = SignalServiceProtos.Content.newBuilder()
         val nullMessage = SignalServiceProtos.NullMessage.newBuilder()
         val sr = SecureRandom()
@@ -61,6 +62,7 @@ class NullMessageSendJob private constructor(parameters: Parameters, private val
             Log.d("Loki", "Failed to send null message to: $publicKey due to error: $e.")
             throw e
         }
+         */
     }
 
     public override fun onShouldRetry(e: Exception): Boolean {

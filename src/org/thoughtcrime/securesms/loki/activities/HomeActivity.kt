@@ -6,10 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.database.Cursor
-import android.net.Uri
-import android.os.AsyncTask
 import android.os.Bundle
-import android.os.Handler
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
@@ -18,25 +15,23 @@ import android.view.View
 import android.widget.RelativeLayout
 import android.widget.Toast
 import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
 import androidx.loader.app.LoaderManager
 import androidx.loader.content.Loader
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import kotlinx.android.synthetic.main.activity_home.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import network.loki.messenger.R
 import org.thoughtcrime.securesms.ApplicationContext
 import org.thoughtcrime.securesms.PassphraseRequiredActionBarActivity
-import org.thoughtcrime.securesms.attachments.AttachmentId
 import org.thoughtcrime.securesms.conversation.ConversationActivity
 import org.thoughtcrime.securesms.database.DatabaseFactory
-import org.thoughtcrime.securesms.database.ThreadDatabase
 import org.thoughtcrime.securesms.database.model.ThreadRecord
 import org.thoughtcrime.securesms.jobs.MultiDeviceBlockedUpdateJob
-import org.thoughtcrime.securesms.loki.api.PrepareAttachmentAudioExtrasJob
-import org.thoughtcrime.securesms.loki.dialogs.ConversationOptionsBottomSheet
-import org.thoughtcrime.securesms.loki.dialogs.LightThemeFeatureIntroBottomSheet
-import org.thoughtcrime.securesms.loki.dialogs.MultiDeviceRemovalBottomSheet
-import org.thoughtcrime.securesms.loki.dialogs.UserDetailsBottomSheet
+import org.thoughtcrime.securesms.loki.dialogs.*
 import org.thoughtcrime.securesms.loki.protocol.ClosedGroupsProtocol
 import org.thoughtcrime.securesms.loki.protocol.SessionResetImplementation
 import org.thoughtcrime.securesms.loki.utilities.*
@@ -55,6 +50,7 @@ import org.whispersystems.signalservice.loki.protocol.shelved.multidevice.MultiD
 import org.whispersystems.signalservice.loki.protocol.shelved.syncmessages.SyncMessagesProtocol
 import org.whispersystems.signalservice.loki.utilities.toHexString
 import java.io.IOException
+import java.util.*
 
 class HomeActivity : PassphraseRequiredActionBarActivity, ConversationClickListener, SeedReminderViewDelegate, NewConversationButtonSetViewDelegate {
     private lateinit var glide: GlideRequests
@@ -72,24 +68,6 @@ class HomeActivity : PassphraseRequiredActionBarActivity, ConversationClickListe
 
     override fun onCreate(savedInstanceState: Bundle?, isReady: Boolean) {
         super.onCreate(savedInstanceState, isReady)
-        // Process any outstanding deletes
-        val threadDatabase = DatabaseFactory.getThreadDatabase(this)
-        val archivedConversationCount = threadDatabase.archivedConversationListCount
-        if (archivedConversationCount > 0) {
-            val archivedConversations = threadDatabase.archivedConversationList
-            archivedConversations.moveToFirst()
-            fun deleteThreadAtCurrentPosition() {
-                val threadID = archivedConversations.getLong(archivedConversations.getColumnIndex(ThreadDatabase.ID))
-                AsyncTask.execute {
-                    threadDatabase.deleteConversation(threadID)
-                    (applicationContext as ApplicationContext).messageNotifier.updateNotification(this)
-                }
-            }
-            deleteThreadAtCurrentPosition()
-            while (archivedConversations.moveToNext()) {
-                deleteThreadAtCurrentPosition()
-            }
-        }
         // Double check that the long poller is up
         (applicationContext as ApplicationContext).startPollingIfNeeded()
         // Set content view
@@ -191,11 +169,6 @@ class HomeActivity : PassphraseRequiredActionBarActivity, ConversationClickListe
         }
         this.broadcastReceiver = broadcastReceiver
         LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiver, IntentFilter("blockedContactsChanged"))
-        // Clear all data if this is a secondary device
-        if (TextSecurePreferences.getMasterHexEncodedPublicKey(this) != null) {
-            TextSecurePreferences.setWasUnlinked(this, true)
-            ApplicationContext.getInstance(this).clearData()
-        }
     }
 
     override fun onResume() {
@@ -207,36 +180,26 @@ class HomeActivity : PassphraseRequiredActionBarActivity, ConversationClickListe
         if (hasViewedSeed || !isMasterDevice) {
             seedReminderView.visibility = View.GONE
         }
+        showKeyPairMigrationSheetIfNeeded()
+        showKeyPairMigrationSuccessSheetIfNeeded()
+    }
 
-        // Multi device removal sheet
-        if (!TextSecurePreferences.getHasSeenMultiDeviceRemovalSheet(this)) {
-            TextSecurePreferences.setHasSeenMultiDeviceRemovalSheet(this)
-            val userPublicKey = TextSecurePreferences.getLocalNumber(this)
-            val deviceLinks = DatabaseFactory.getLokiAPIDatabase(this).getDeviceLinks(userPublicKey)
-            if (deviceLinks.isNotEmpty()) {
-                val bottomSheet = MultiDeviceRemovalBottomSheet()
-                bottomSheet.onOKTapped = {
-                    bottomSheet.dismiss()
-                }
-                bottomSheet.onLinkTapped = {
-                    bottomSheet.dismiss()
-                    val url = "https://getsession.org/faq"
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    startActivity(intent)
-                }
-                bottomSheet.show(supportFragmentManager, bottomSheet.tag)
-                return
-            }
-        }
+    private fun showKeyPairMigrationSheetIfNeeded() {
+        if (KeyPairUtilities.hasV2KeyPair(this)) { return }
+        val lastNudge = TextSecurePreferences.getLastKeyPairMigrationNudge(this)
+        val nudgeInterval: Long = 3 * 24 * 60 * 60 * 1000 // 3 days
+        val nudge = (Date().time - lastNudge > nudgeInterval)
+        if (!nudge) { return }
+        val keyPairMigrationSheet = KeyPairMigrationBottomSheet()
+        keyPairMigrationSheet.show(supportFragmentManager, keyPairMigrationSheet.tag)
+        TextSecurePreferences.setLastKeyPairMigrationNudge(this, Date().time)
+    }
 
-        // Light theme introduction sheet
-        if (!TextSecurePreferences.hasSeenLightThemeIntroSheet(this) &&
-                UiModeUtilities.isDayUiMode(this)) {
-            TextSecurePreferences.setHasSeenLightThemeIntroSheet(this)
-            val bottomSheet = LightThemeFeatureIntroBottomSheet()
-            bottomSheet.show(supportFragmentManager, bottomSheet.tag)
-            return
-        }
+    private fun showKeyPairMigrationSuccessSheetIfNeeded() {
+        if (!KeyPairUtilities.hasV2KeyPair(this) || !TextSecurePreferences.getIsMigratingKeyPair(this)) { return }
+        val keyPairMigrationSuccessSheet = KeyPairMigrationSuccessBottomSheet()
+        keyPairMigrationSuccessSheet.show(supportFragmentManager, keyPairMigrationSuccessSheet.tag)
+        TextSecurePreferences.setIsMigratingKeyPair(this, false)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -342,53 +305,56 @@ class HomeActivity : PassphraseRequiredActionBarActivity, ConversationClickListe
         val threadID = thread.threadId
         val recipient = thread.recipient
         val threadDB = DatabaseFactory.getThreadDatabase(this)
-        val deleteThread = Runnable {
-            AsyncTask.execute {
-                val publicChat = DatabaseFactory.getLokiThreadDatabase(this@HomeActivity).getPublicChat(threadID)
-                if (publicChat != null) {
-                    val apiDB = DatabaseFactory.getLokiAPIDatabase(this@HomeActivity)
-                    apiDB.removeLastMessageServerID(publicChat.channel, publicChat.server)
-                    apiDB.removeLastDeletionServerID(publicChat.channel, publicChat.server)
-                    apiDB.clearOpenGroupProfilePictureURL(publicChat.channel, publicChat.server)
-                    ApplicationContext.getInstance(this@HomeActivity).publicChatAPI!!.leave(publicChat.channel, publicChat.server)
-                }
-                threadDB.deleteConversation(threadID)
-                ApplicationContext.getInstance(this@HomeActivity).messageNotifier.updateNotification(this@HomeActivity)
-            }
-        }
         val dialogMessage = if (recipient.isGroupRecipient) R.string.activity_home_leave_group_dialog_message else R.string.activity_home_delete_conversation_dialog_message
         val dialog = AlertDialog.Builder(this)
         dialog.setMessage(dialogMessage)
-        dialog.setPositiveButton(R.string.yes) { _, _ ->
+        dialog.setPositiveButton(R.string.yes) { _, _ -> lifecycleScope.launch(Dispatchers.Main) {
+            val context = this@HomeActivity as Context
+
             val isClosedGroup = recipient.address.isClosedGroup
             // Send a leave group message if this is an active closed group
-            if (isClosedGroup && DatabaseFactory.getGroupDatabase(this).isActive(recipient.address.toGroupString())) {
+            if (isClosedGroup && DatabaseFactory.getGroupDatabase(context).isActive(recipient.address.toGroupString())) {
                 var isSSKBasedClosedGroup: Boolean
                 var groupPublicKey: String?
                 try {
                     groupPublicKey = ClosedGroupsProtocol.doubleDecodeGroupID(recipient.address.toString()).toHexString()
-                    isSSKBasedClosedGroup = DatabaseFactory.getSSKDatabase(this).isSSKBasedClosedGroup(groupPublicKey)
+                    isSSKBasedClosedGroup = DatabaseFactory.getSSKDatabase(context).isSSKBasedClosedGroup(groupPublicKey)
                 } catch (e: IOException) {
                     groupPublicKey = null
                     isSSKBasedClosedGroup = false
                 }
                 if (isSSKBasedClosedGroup) {
-                    ClosedGroupsProtocol.leave(this, groupPublicKey!!)
-                } else if (!ClosedGroupsProtocol.leaveLegacyGroup(this, recipient)) {
-                    Toast.makeText(this, R.string.activity_home_leaving_group_failed_message, Toast.LENGTH_LONG).show()
-                    return@setPositiveButton
+                    ClosedGroupsProtocol.leave(context, groupPublicKey!!)
+                } else if (!ClosedGroupsProtocol.leaveLegacyGroup(context, recipient)) {
+                    Toast.makeText(context, R.string.activity_home_leaving_group_failed_message, Toast.LENGTH_LONG).show()
+                    return@launch
                 }
             }
-            // Archive the conversation and then delete it after 10 seconds (the case where the
-            // app was closed before the conversation could be deleted is handled in onCreate)
-            threadDB.archiveConversation(threadID)
-            val delay = if (isClosedGroup) 10000L else 1000L
-            val handler = Handler()
-            handler.postDelayed(deleteThread, delay)
+
+            withContext(Dispatchers.IO) {
+                val publicChat = DatabaseFactory.getLokiThreadDatabase(context).getPublicChat(threadID)
+                //TODO Move open group related logic to OpenGroupUtilities / PublicChatManager / GroupManager
+                if (publicChat != null) {
+                    val apiDB = DatabaseFactory.getLokiAPIDatabase(context)
+                    apiDB.removeLastMessageServerID(publicChat.channel, publicChat.server)
+                    apiDB.removeLastDeletionServerID(publicChat.channel, publicChat.server)
+                    apiDB.clearOpenGroupProfilePictureURL(publicChat.channel, publicChat.server)
+
+                    ApplicationContext.getInstance(context).publicChatAPI!!
+                            .leave(publicChat.channel, publicChat.server)
+
+                    ApplicationContext.getInstance(context).publicChatManager
+                            .removeChat(publicChat.server, publicChat.channel)
+                } else {
+                    threadDB.deleteConversation(threadID)
+                }
+                ApplicationContext.getInstance(context).messageNotifier.updateNotification(context)
+            }
+
             // Notify the user
             val toastMessage = if (recipient.isGroupRecipient) R.string.MessageRecord_left_group else R.string.activity_home_conversation_deleted_message
-            Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
-        }
+            Toast.makeText(context, toastMessage, Toast.LENGTH_LONG).show()
+        }}
         dialog.setNegativeButton(R.string.no) { _, _ ->
             // Do nothing
         }

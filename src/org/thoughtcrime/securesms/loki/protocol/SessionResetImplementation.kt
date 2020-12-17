@@ -21,18 +21,20 @@ class SessionResetImplementation(private val context: Context) : SessionResetPro
     }
 
     override fun onNewSessionAdopted(publicKey: String, oldSessionResetStatus: SessionResetStatus) {
+        /*
         if (oldSessionResetStatus == SessionResetStatus.IN_PROGRESS) {
             val job = NullMessageSendJob(publicKey)
             ApplicationContext.getInstance(context).jobManager.add(job)
         }
         val smsDB = DatabaseFactory.getSmsDatabase(context)
         val recipient = Recipient.from(context, Address.fromSerialized(publicKey), false)
-        val threadID = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipient)
+        val threadID = DatabaseFactory.getThreadDatabase(context).getOrCreateThreadIdFor(recipient)
         val infoMessage = OutgoingTextMessage(recipient, "", 0, 0)
         val infoMessageID = smsDB.insertMessageOutbox(threadID, infoMessage, false, System.currentTimeMillis(), null)
         if (infoMessageID > -1) {
             smsDB.markAsLokiSessionRestorationDone(infoMessageID)
         }
+         */
     }
 
     override fun validatePreKeySignalMessage(publicKey: String, message: PreKeySignalMessage) {

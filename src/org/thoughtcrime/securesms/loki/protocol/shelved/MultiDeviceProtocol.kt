@@ -197,7 +197,7 @@ object MultiDeviceProtocol {
                     FileServerAPI.shared.removeDeviceLink(slaveDeviceLink) // Attempt to clean up on the file server
                 }
                 TextSecurePreferences.setWasUnlinked(context, true)
-                ApplicationContext.getInstance(context).clearData()
+                ApplicationContext.getInstance(context).clearAllData(false)
             }
         }
     }

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -1332,6 +1333,30 @@ public class TextSecurePreferences {
 
   public static void setHasSeenLightThemeIntroSheet(Context context) {
     setBooleanPreference(context, "has_seen_light_theme_intro_sheet", true);
+  }
+
+  public static long getLastSnodePoolRefreshDate(Context context) {
+    return getLongPreference(context, "last_snode_pool_refresh_date", 0);
+  }
+
+  public static void setLastSnodePoolRefreshDate(Context context, Date date) {
+    setLongPreference(context, "last_snode_pool_refresh_date", date.getTime());
+  }
+
+  public static long getLastKeyPairMigrationNudge(Context context) {
+    return getLongPreference(context, "last_key_pair_migration_nudge", 0);
+  }
+
+  public static void setLastKeyPairMigrationNudge(Context context, long newValue) {
+    setLongPreference(context, "last_key_pair_migration_nudge", newValue);
+  }
+
+  public static boolean getIsMigratingKeyPair(Context context) {
+    return getBooleanPreference(context, "is_migrating_key_pair", false);
+  }
+
+  public static void setIsMigratingKeyPair(Context context, boolean newValue) {
+    setBooleanPreference(context, "is_migrating_key_pair", newValue);
   }
   // endregion
 }

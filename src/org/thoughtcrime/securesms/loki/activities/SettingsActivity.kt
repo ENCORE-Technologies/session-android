@@ -2,6 +2,7 @@ package org.thoughtcrime.securesms.loki.activities
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -33,10 +34,7 @@ import org.thoughtcrime.securesms.database.DatabaseFactory
 import org.thoughtcrime.securesms.loki.dialogs.ChangeUiModeDialog
 import org.thoughtcrime.securesms.loki.dialogs.ClearAllDataDialog
 import org.thoughtcrime.securesms.loki.dialogs.SeedDialog
-import org.thoughtcrime.securesms.loki.utilities.UiModeUtilities
-import org.thoughtcrime.securesms.loki.utilities.fadeIn
-import org.thoughtcrime.securesms.loki.utilities.fadeOut
-import org.thoughtcrime.securesms.loki.utilities.push
+import org.thoughtcrime.securesms.loki.utilities.*
 import org.thoughtcrime.securesms.mms.GlideApp
 import org.thoughtcrime.securesms.mms.GlideRequests
 import org.thoughtcrime.securesms.permissions.Permissions
@@ -85,18 +83,18 @@ class SettingsActivity : PassphraseRequiredActionBarActivity() {
         publicKeyTextView.text = hexEncodedPublicKey
         copyButton.setOnClickListener { copyPublicKey() }
         shareButton.setOnClickListener { sharePublicKey() }
-        val isMasterDevice = (TextSecurePreferences.getMasterHexEncodedPublicKey(this) == null)
-        linkedDevicesButtonTopSeparator.visibility = View.GONE
-        linkedDevicesButton.visibility = View.GONE
-        if (!isMasterDevice) {
-            seedButtonTopSeparator.visibility = View.GONE
-            seedButton.visibility = View.GONE
-        }
         privacyButton.setOnClickListener { showPrivacySettings() }
         notificationsButton.setOnClickListener { showNotificationSettings() }
         chatsButton.setOnClickListener { showChatSettings() }
-//        linkedDevicesButton.setOnClickListener { showLinkedDevices() }
         sendInvitationButton.setOnClickListener { sendInvitation() }
+        if (!KeyPairUtilities.hasV2KeyPair(this)) {
+            upgradeSessionIDButtonTopSeparator.visibility = View.VISIBLE
+            upgradeSessionIDButton.setOnClickListener { upgradeSessionID() }
+            upgradeSessionIDButton.visibility = View.VISIBLE
+        } else {
+            upgradeSessionIDButtonTopSeparator.visibility = View.GONE
+            upgradeSessionIDButton.visibility = View.GONE
+        }
         seedButton.setOnClickListener { showSeed() }
         clearAllDataButton.setOnClickListener { clearAllData() }
         versionTextView.text = String.format(getString(R.string.version_s), "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
@@ -300,6 +298,19 @@ class SettingsActivity : PassphraseRequiredActionBarActivity() {
         intent.putExtra(Intent.EXTRA_TEXT, invitation)
         intent.type = "text/plain"
         startActivity(intent)
+    }
+
+    private fun upgradeSessionID() {
+        val applicationContext = this.applicationContext as ApplicationContext
+        val dialog = AlertDialog.Builder(this)
+        dialog.setMessage("You’re upgrading to a new Session ID. This will give you improved privacy and security, but it will clear ALL app data. Contacts and conversations will be lost. Proceed?")
+        dialog.setPositiveButton(R.string.yes) { _, _ ->
+            applicationContext.clearAllData(true)
+        }
+        dialog.setNegativeButton(R.string.cancel) { _, _ ->
+            // Do nothing
+        }
+        dialog.create().show()
     }
 
     private fun showSeed() {
